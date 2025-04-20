@@ -31,13 +31,13 @@ jobs:
         run: |
           pyinstaller --onefile --name suapcd main.py
 
-      - name: Rename executable with version
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            mv dist/suapcd dist/suapcd-${{ github.ref_name }}-linux
-          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv dist/suapcd.exe dist/suapcd-${{ github.ref_name }}-windows.exe
-          fi
+      - name: Rename executable for Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: mv dist/suapcd dist/suapcd-${{ github.ref_name }}-linux
+
+      - name: Rename executable for Windows
+        if: matrix.os == 'windows-latest'
+        run: ren dist\suapcd.exe suapcd-${{ github.ref_name }}-windows.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -67,3 +67,4 @@ jobs:
           files: |
             artifacts/suapcd-ubuntu-latest/suapcd-${{ github.ref_name }}-linux
             artifacts/suapcd-windows-latest/suapcd-${{ github.ref_name }}-windows.exe
+            
