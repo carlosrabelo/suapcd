@@ -61,7 +61,7 @@ jobs:
           draft: false
           prerelease: false
           body: |
-            Lançamento da versão ${{ github.ref_name }} do suapcd.
+            Lançamento da versão ${{ github.ref_name }} do SUAP-CD.
             - Coletor de dados para verificação de patrimônio (Linux e Windows).
           files: |
             artifacts/suapcd-ubuntu-latest/suapcd-${{ github.ref_name }}-linux
