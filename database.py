@@ -12,22 +12,18 @@ def init_database():
     conn = sqlite3.connect("data/suap.db")
     cursor = conn.cursor()
     
-    # Dropar tabelas existentes para garantir o esquema correto
-    cursor.execute("DROP TABLE IF EXISTS patrimonios")
-    cursor.execute("DROP TABLE IF EXISTS salas")
-    
-    # Criar tabela de salas
+    # Criar tabela de salas, se não existir
     cursor.execute('''
-        CREATE TABLE salas (
+        CREATE TABLE IF NOT EXISTS salas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sala TEXT NOT NULL UNIQUE,
             codigo TEXT NOT NULL UNIQUE
         )
     ''')
     
-    # Criar tabela de patrimônios
+    # Criar tabela de patrimônios, se não existir
     cursor.execute('''
-        CREATE TABLE patrimonios (
+        CREATE TABLE IF NOT EXISTS patrimonios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             numero TEXT NOT NULL,
             status TEXT,
@@ -51,28 +47,24 @@ def init_database():
     ''')
     
     conn.commit()
-    
     return conn, cursor
 
 def generate_unique_code(sala_text, existing_codes=None):
     """
     Gera um código único baseado no hash MD5 do texto da sala.
     O código é determinístico, produzindo o mesmo resultado para o mesmo texto.
-    Verifica unicidade contra existing_codes, se fornecido.
     """
     if not sala_text:
         return None
-    # Usar MD5 para gerar um hash determinístico
     hash_object = hashlib.md5(sala_text.encode('utf-8'))
-    code = hash_object.hexdigest()  # Código completo de 32 caracteres
-    # Verificar unicidade
+    code = hash_object.hexdigest()
     if existing_codes is None or code not in existing_codes:
         return code
     raise ValueError(f"Colisão de hash MD5 para a sala: {sala_text}")
 
 def load_data_from_file(cursor, conn, file_path):
     """Zera as tabelas, processa o CSV em memória e grava salas e patrimônios no banco."""
-    # Zerar as tabelas
+    # Zerar as tabelas apenas quando um novo arquivo é carregado
     cursor.execute("DELETE FROM patrimonios")
     cursor.execute("DELETE FROM salas")
     conn.commit()
@@ -157,3 +149,22 @@ def load_data_from_file(cursor, conn, file_path):
             print(f"Salas importadas: {len(sala_data)}")
     except Exception as e:
         print(f"Erro ao carregar o arquivo: {e}")
+
+def get_all_salas(cursor):
+    """Retorna uma lista de todas as salas (id, nome)."""
+    cursor.execute("SELECT id, sala FROM salas ORDER BY sala")
+    return cursor.fetchall()
+
+def get_patrimonios_by_sala(cursor, sala_id):
+    """Retorna todos os patrimônios associados a uma sala específica."""
+    cursor.execute('''
+        SELECT p.numero, p.status, p.ed, p.descricao, p.rotulos, p.carga_atual,
+               p.setor_responsavel, p.campus_carga, p.valor_aquisicao,
+               p.valor_depreciado, p.numero_nota_fiscal, p.numero_de_serie,
+               p.data_da_entrada, p.data_da_carga, p.fornecedor, s.sala,
+               p.estado_de_conservacao
+        FROM patrimonios p
+        LEFT JOIN salas s ON p.sala_id = s.id
+        WHERE p.sala_id = ?
+    ''', (sala_id,))
+    return cursor.fetchall()
