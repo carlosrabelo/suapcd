@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import csv
+import hashlib
 
 def init_database():
     """Inicializa o banco de dados e retorna a conexão e o cursor."""
@@ -11,9 +12,22 @@ def init_database():
     conn = sqlite3.connect("data/suap.db")
     cursor = conn.cursor()
     
+    # Dropar tabelas existentes para garantir o esquema correto
+    cursor.execute("DROP TABLE IF EXISTS patrimonios")
+    cursor.execute("DROP TABLE IF EXISTS salas")
+    
+    # Criar tabela de salas
+    cursor.execute('''
+        CREATE TABLE salas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sala TEXT NOT NULL UNIQUE,
+            codigo TEXT NOT NULL UNIQUE
+        )
+    ''')
+    
     # Criar tabela de patrimônios
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS patrimonios (
+        CREATE TABLE patrimonios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             numero TEXT NOT NULL,
             status TEXT,
@@ -30,21 +44,40 @@ def init_database():
             data_da_entrada TEXT,
             data_da_carga TEXT,
             fornecedor TEXT,
-            sala TEXT,
-            estado_de_conservacao TEXT
+            sala_id INTEGER,
+            estado_de_conservacao TEXT,
+            FOREIGN KEY (sala_id) REFERENCES salas(id)
         )
     ''')
+    
     conn.commit()
     
     return conn, cursor
 
+def generate_unique_code(sala_text, existing_codes=None):
+    """
+    Gera um código único baseado no hash MD5 do texto da sala.
+    O código é determinístico, produzindo o mesmo resultado para o mesmo texto.
+    Verifica unicidade contra existing_codes, se fornecido.
+    """
+    if not sala_text:
+        return None
+    # Usar MD5 para gerar um hash determinístico
+    hash_object = hashlib.md5(sala_text.encode('utf-8'))
+    code = hash_object.hexdigest()  # Código completo de 32 caracteres
+    # Verificar unicidade
+    if existing_codes is None or code not in existing_codes:
+        return code
+    raise ValueError(f"Colisão de hash MD5 para a sala: {sala_text}")
+
 def load_data_from_file(cursor, conn, file_path):
-    """Zera a tabela patrimonios e carrega dados de um arquivo CSV."""
-    # Zerar a tabela
+    """Zera as tabelas, processa o CSV em memória e grava salas e patrimônios no banco."""
+    # Zerar as tabelas
     cursor.execute("DELETE FROM patrimonios")
+    cursor.execute("DELETE FROM salas")
     conn.commit()
 
-    # Ler e inserir dados do arquivo CSV
+    # Ler e processar o arquivo CSV
     try:
         with open(file_path, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -59,20 +92,27 @@ def load_data_from_file(cursor, conn, file_path):
                 print(f"Erro: O arquivo CSV deve ter exatamente as colunas: {expected_columns}")
                 return
 
-            for row in reader:
-                # Converter CAMPUS DA CARGA para minúsculas
-                campus_carga = row['CAMPUS DA CARGA'].lower() if row['CAMPUS DA CARGA'] else None
+            # Montar array temporário para salas
+            salas_unicas = set(row['SALA'] for row in reader if row['SALA'])
+            sala_data = []
+            existing_codes = set()
+            sala_to_id = {}
+            next_id = 1
+            for sala in salas_unicas:
+                codigo = generate_unique_code(sala, existing_codes)
+                existing_codes.add(codigo)
+                sala_data.append({'id': next_id, 'sala': sala, 'codigo': codigo})
+                sala_to_id[sala] = next_id
+                next_id += 1
 
-                cursor.execute('''
-                    INSERT INTO patrimonios (
-                        numero, status, ed, descricao, rotulos, carga_atual,
-                        setor_responsavel, campus_carga, valor_aquisicao,
-                        valor_depreciado, numero_nota_fiscal, numero_de_serie,
-                        data_da_entrada, data_da_carga, fornecedor, sala,
-                        estado_de_conservacao
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
+            # Armazenar registros de patrimônios em memória
+            patrimonios_data = []
+            csvfile.seek(0)
+            next(reader)  # Pular o cabeçalho
+            for row in reader:
+                campus_carga = row['CAMPUS DA CARGA'].lower() if row['CAMPUS DA CARGA'] else None
+                sala_id = sala_to_id.get(row['SALA'], None)
+                patrimonios_data.append((
                     row['NUMERO'],
                     row['STATUS'] or None,
                     row['ED'] or None,
@@ -88,10 +128,32 @@ def load_data_from_file(cursor, conn, file_path):
                     row['DATA DA ENTRADA'] or None,
                     row['DATA DA CARGA'] or None,
                     row['FORNECEDOR'] or None,
-                    row['SALA'] or None,
+                    sala_id,
                     row['ESTADO DE CONSERVAÇÃO'] or None
                 ))
+
+            # Inserir salas no banco
+            for sala in sala_data:
+                cursor.execute('''
+                    INSERT INTO salas (id, sala, codigo)
+                    VALUES (?, ?, ?)
+                ''', (sala['id'], sala['sala'], sala['codigo']))
+
+            # Inserir patrimônios no banco
+            cursor.executemany('''
+                INSERT INTO patrimonios (
+                    numero, status, ed, descricao, rotulos, carga_atual,
+                    setor_responsavel, campus_carga, valor_aquisicao,
+                    valor_depreciado, numero_nota_fiscal, numero_de_serie,
+                    data_da_entrada, data_da_carga, fornecedor, sala_id,
+                    estado_de_conservacao
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', patrimonios_data)
+
             conn.commit()
             print(f"Dados carregados com sucesso de {file_path}")
+            print(f"Itens importados: {len(patrimonios_data)}")
+            print(f"Salas importadas: {len(sala_data)}")
     except Exception as e:
         print(f"Erro ao carregar o arquivo: {e}")
