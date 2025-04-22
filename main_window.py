@@ -8,7 +8,7 @@ import glob
 from PyQt5.QtWidgets import (
     QMainWindow, QLabel, QVBoxLayout, QWidget, QHBoxLayout,
     QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView,
-    QPushButton, QLineEdit, QComboBox
+    QPushButton, QLineEdit, QComboBox, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QBrush, QColor
@@ -78,11 +78,11 @@ class MainWindow(QMainWindow):
         
         # Tabela para exibir patrimônios
         self.patrimonio_table = QTableWidget(self)
-        self.patrimonio_table.setColumnCount(11)
+        self.patrimonio_table.setColumnCount(12)
         self.patrimonio_table.setHorizontalHeaderLabels([
             "Número", "Status", "ED", "Descrição", "Rótulos", "Carga Atual",
             "Setor Responsável", "Campus Carga", "Número de Série", "Estado Conservação",
-            "Encontrado"
+            "Encontrado", "Sala Original"
         ])
         self.patrimonio_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.patrimonio_table.setFont(QFont("Arial", 10))
@@ -159,7 +159,7 @@ class MainWindow(QMainWindow):
         # Filtrar patrimônios com base no modo de filtro
         filtered_patrimonios = []
         for patrimonio in patrimonios:
-            encontrado = patrimonio[-1]  # Último campo é encontrado
+            encontrado = patrimonio[-2]  # Penúltimo campo é encontrado
             if self.filter_mode == "all":
                 filtered_patrimonios.append(patrimonio)
             elif self.filter_mode == "encontrados" and encontrado == 1:
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         
         # Calcular estatísticas
         total_patrimonios = len(filtered_patrimonios)
-        encontrados = sum(1 for row_data in filtered_patrimonios if row_data[-1] == 1)
+        encontrados = sum(1 for row_data in filtered_patrimonios if row_data[-2] == 1)
         
         # Atualizar labels
         self.total_label.setText(f"Total de Patrimônios: {total_patrimonios}")
@@ -180,31 +180,54 @@ class MainWindow(QMainWindow):
         
         # Preencher tabela
         for row_idx, row_data in enumerate(filtered_patrimonios):
-            # Mapear os 11 campos: numero, status, ed, descricao, rotulos, carga_atual,
-            # setor_responsavel, campus_carga, numero_de_serie, estado_de_conservacao, encontrado
-            for col_idx, value in enumerate(row_data[:-1]):  # Excluir encontrado dos valores
+            # Mapear os 12 campos: numero, status, ed, descricao, rotulos, carga_atual,
+            # setor_responsavel, campus_carga, numero_de_serie, estado_de_conservacao,
+            # encontrado, sala_id_original
+            is_divergent = row_data[-1] is not None and row_data[-1] != sala_id
+            highlight_color = (QColor(255, 255, 0) if is_divergent else
+                             QColor(144, 238, 144) if row_data[-2] == 1 else None)
+            
+            for col_idx, value in enumerate(row_data[:-2]):  # Excluir encontrado e sala_id_original
                 item = QTableWidgetItem(str(value or ""))
-                # Destacar linha se encontrado = 1
-                if row_data[-1] == 1:  # Último campo é encontrado
-                    item.setBackground(QBrush(QColor(144, 238, 144)))  # Verde claro
+                if highlight_color:
+                    item.setBackground(QBrush(highlight_color))
                 self.patrimonio_table.setItem(row_idx, col_idx, item)
+            
             # Coluna Encontrado
-            encontrado_text = "Sim" if row_data[-1] == 1 else "Não"
+            encontrado_text = "Sim" if row_data[-2] == 1 else "Não"
             item = QTableWidgetItem(encontrado_text)
-            if row_data[-1] == 1:
-                item.setBackground(QBrush(QColor(144, 238, 144)))  # Verde claro
+            if highlight_color:
+                item.setBackground(QBrush(highlight_color))
             self.patrimonio_table.setItem(row_idx, 10, item)
+            
+            # Coluna Sala Original (mostra o nome da sala ou vazio se não houver)
+            sala_id_original = row_data[-1]
+            sala_original_text = ""
+            if sala_id_original:
+                self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                result = self.db_manager.cursor.fetchone()
+                sala_original_text = result[0] if result else ""
+            item = QTableWidgetItem(sala_original_text)
+            if highlight_color:
+                item.setBackground(QBrush(highlight_color))
+            self.patrimonio_table.setItem(row_idx, 11, item)
 
     def open_scan_window(self):
-        """Abre a janela de escaneamento de código de barras como diálogo modal."""
+        """Abre a janela de escaneamento de código de barras como diálogo modal, se uma sala estiver selecionada."""
+        selected_items = self.sala_table.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Erro", "Por favor, selecione uma sala antes de escanear.")
+            return
+        
+        sala_id = selected_items[0].data(Qt.UserRole)
         self.hide()
         from scan_window import ScanWindow
-        self.scan_window = ScanWindow(self.db_manager, self)
-        self.scan_window.showMaximized()  # Abrir em tela cheia
+        self.scan_window = ScanWindow(self.db_manager, self, sala_id)
+        self.scan_window.show()  # Abrir a janela de escaneamento
         self.showMaximized()  # Restaurar a janela principal após fechar
 
     def generate_report(self):
-        """Gera relatórios CSV com itens lidos e não lidos para cada sala e geral."""
+        """Gera relatórios CSV com itens lidos, não lidos e divergentes para cada sala e geral."""
         # Criar diretório base para relatórios
         base_dir = "report"
         try:
@@ -228,31 +251,36 @@ class MainWindow(QMainWindow):
         salas = {}
         geral_encontrados = []
         geral_nao_encontrados = []
+        geral_divergentes = []
         for row in relatorio_data:
             sala_id, sala_nome = row[0], row[1]
             if sala_id not in salas:
-                salas[sala_id] = {"nome": sala_nome, "encontrados": [], "nao_encontrados": []}
+                salas[sala_id] = {"nome": sala_nome, "encontrados": [], "nao_encontrados": [], "divergentes": []}
             if row[2] is not None:  # Ignorar linhas sem patrimônios
                 patrimonio = row[2:]
-                if patrimonio[-1] == 1:  # encontrado = 1
+                if patrimonio[-2] == 1:  # encontrado = 1
                     salas[sala_id]["encontrados"].append(patrimonio)
                     geral_encontrados.append((sala_nome, *patrimonio))
                 else:  # encontrado = 0
                     salas[sala_id]["nao_encontrados"].append(patrimonio)
                     geral_nao_encontrados.append((sala_nome, *patrimonio))
+                # Verificar divergência (sala_id != sala_id_original)
+                if patrimonio[-1] is not None and patrimonio[-1] != sala_id:
+                    salas[sala_id]["divergentes"].append(patrimonio)
+                    geral_divergentes.append((sala_nome, *patrimonio))
 
         # Cabeçalhos do CSV para relatórios por sala
         headers_sala = [
             "Número", "Status", "ED", "Descrição", "Rótulos", "Carga Atual",
             "Setor Responsável", "Campus Carga", "Número de Série",
-            "Estado Conservação", "Encontrado"
+            "Estado Conservação", "Encontrado", "Sala Original"
         ]
 
         # Cabeçalhos do CSV para relatórios gerais (com coluna Sala)
         headers_geral = [
-            "Sala", "Número", "Status", "ED", "Descrição", "Rótulos", "Carga Atual",
+            "Sala Atual", "Número", "Status", "ED", "Descrição", "Rótulos", "Carga Atual",
             "Setor Responsável", "Campus Carga", "Número de Série",
-            "Estado Conservação", "Encontrado"
+            "Estado Conservação", "Encontrado", "Sala Original"
         ]
 
         # Limpar arquivos CSV existentes na pasta geral
@@ -271,7 +299,15 @@ class MainWindow(QMainWindow):
                 writer.writerow(headers_geral)
                 for sala_nome, *patrimonio in geral_encontrados:
                     row = list(patrimonio)
-                    row[-1] = "Lido"
+                    row[-2] = "Lido"
+                    # Obter nome da sala original
+                    sala_id_original = row[-1]
+                    sala_original_nome = ""
+                    if sala_id_original:
+                        self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                        result = self.db_manager.cursor.fetchone()
+                        sala_original_nome = result[0] if result else ""
+                    row[-1] = sala_original_nome
                     writer.writerow([sala_nome, *map(lambda x: str(x or ""), row)])
             print(f"Relatório geral de encontrados gerado: {csv_path_geral_encontrados}")
         except Exception as e:
@@ -285,17 +321,48 @@ class MainWindow(QMainWindow):
                 writer.writerow(headers_geral)
                 for sala_nome, *patrimonio in geral_nao_encontrados:
                     row = list(patrimonio)
-                    row[-1] = "Não Lido"
+                    row[-2] = "Não Lido"
+                    # Obter nome da sala original
+                    sala_id_original = row[-1]
+                    sala_original_nome = ""
+                    if sala_id_original:
+                        self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                        result = self.db_manager.cursor.fetchone()
+                        sala_original_nome = result[0] if result else ""
+                    row[-1] = sala_original_nome
                     writer.writerow([sala_nome, *map(lambda x: str(x or ""), row)])
             print(f"Relatório geral de não encontrados gerado: {csv_path_geral_nao_encontrados}")
         except Exception as e:
             print(f"Erro ao escrever CSV {csv_path_geral_nao_encontrados}: {e}")
+
+        # Gerar CSV geral para divergentes
+        csv_path_geral_divergentes = os.path.join(geral_dir, "divergente.csv")
+        try:
+            with open(csv_path_geral_divergentes, mode='w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(headers_geral)
+                for sala_nome, *patrimonio in geral_divergentes:
+                    row = list(patrimonio)
+                    row[-2] = "Lido" if row[-2] == 1 else "Não Lido"
+                    # Obter nome da sala original
+                    sala_id_original = row[-1]
+                    sala_original_nome = ""
+                    if sala_id_original:
+                        self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                        result = self.db_manager.cursor.fetchone()
+                        sala_original_nome = result[0] if result else ""
+                    row[-1] = sala_original_nome
+                    writer.writerow([sala_nome, *map(lambda x: str(x or ""), row)])
+            print(f"Relatório geral de divergentes gerado: {csv_path_geral_divergentes}")
+        except Exception as e:
+            print(f"Erro ao escrever CSV {csv_path_geral_divergentes}: {e}")
 
         # Gerar CSVs para cada sala
         for sala_id, sala_info in salas.items():
             sala_nome = sala_info["nome"]
             encontrados = sala_info["encontrados"]
             nao_encontrados = sala_info["nao_encontrados"]
+            divergentes = sala_info["divergentes"]
             
             # Criar pasta da sala (substituir caracteres inválidos)
             safe_sala_nome = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in sala_nome)
@@ -322,7 +389,15 @@ class MainWindow(QMainWindow):
                     writer.writerow(headers_sala)
                     for patrimonio in encontrados:
                         row = list(patrimonio)
-                        row[-1] = "Lido"
+                        row[-2] = "Lido"
+                        # Obter nome da sala original
+                        sala_id_original = row[-1]
+                        sala_original_nome = ""
+                        if sala_id_original:
+                            self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                            result = self.db_manager.cursor.fetchone()
+                            sala_original_nome = result[0] if result else ""
+                        row[-1] = sala_original_nome
                         writer.writerow([str(val or "") for val in row])
                 print(f"Relatório de encontrados gerado para sala {sala_nome}: {csv_path_encontrados}")
             except Exception as e:
@@ -336,11 +411,41 @@ class MainWindow(QMainWindow):
                     writer.writerow(headers_sala)
                     for patrimonio in nao_encontrados:
                         row = list(patrimonio)
-                        row[-1] = "Não Lido"
+                        row[-2] = "Não Lido"
+                        # Obter nome da sala original
+                        sala_id_original = row[-1]
+                        sala_original_nome = ""
+                        if sala_id_original:
+                            self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                            result = self.db_manager.cursor.fetchone()
+                            sala_original_nome = result[0] if result else ""
+                        row[-1] = sala_original_nome
                         writer.writerow([str(val or "") for val in row])
                 print(f"Relatório de não encontrados gerado para sala {sala_nome}: {csv_path_nao_encontrados}")
             except Exception as e:
                 print(f"Erro ao escrever CSV {csv_path_nao_encontrados}: {e}")
+
+            # Gerar CSV para divergentes
+            csv_path_divergentes = os.path.join(sala_dir, "divergente.csv")
+            try:
+                with open(csv_path_divergentes, mode='w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(headers_sala)
+                    for patrimonio in divergentes:
+                        row = list(patrimonio)
+                        row[-2] = "Lido" if row[-2] == 1 else "Não Lido"
+                        # Obter nome da sala original
+                        sala_id_original = row[-1]
+                        sala_original_nome = ""
+                        if sala_id_original:
+                            self.db_manager.cursor.execute("SELECT sala FROM salas WHERE id = ?", (sala_id_original,))
+                            result = self.db_manager.cursor.fetchone()
+                            sala_original_nome = result[0] if result else ""
+                        row[-1] = sala_original_nome
+                        writer.writerow([str(val or "") for val in row])
+                print(f"Relatório de divergentes gerado para sala {sala_nome}: {csv_path_divergentes}")
+            except Exception as e:
+                print(f"Erro ao escrever CSV {csv_path_divergentes}: {e}")
 
     def closeEvent(self, event):
         """Evento de fechamento da janela principal."""

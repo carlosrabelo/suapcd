@@ -49,7 +49,9 @@ class DatabaseManager:
                 sala_id INTEGER,
                 estado_de_conservacao TEXT,
                 encontrado INTEGER DEFAULT 0,
-                FOREIGN KEY (sala_id) REFERENCES salas(id)
+                sala_id_original INTEGER,
+                FOREIGN KEY (sala_id) REFERENCES salas(id),
+                FOREIGN KEY (sala_id_original) REFERENCES salas(id)
             )
         ''')
         
@@ -60,6 +62,19 @@ class DatabaseManager:
             self.cursor.execute('''
                 ALTER TABLE patrimonios
                 ADD COLUMN encontrado INTEGER DEFAULT 0
+            ''')
+        
+        # Verificar e adicionar a coluna 'sala_id_original' se não existir
+        if 'sala_id_original' not in columns:
+            self.cursor.execute('''
+                ALTER TABLE patrimonios
+                ADD COLUMN sala_id_original INTEGER
+            ''')
+            # Inicializar sala_id_original com o valor atual de sala_id
+            self.cursor.execute('''
+                UPDATE patrimonios
+                SET sala_id_original = sala_id
+                WHERE sala_id_original IS NULL
             ''')
             self.conn.commit()
         
@@ -86,28 +101,49 @@ class DatabaseManager:
         self.cursor.execute('''
             SELECT p.numero, p.status, p.ed, p.descricao, p.rotulos, p.carga_atual,
                    p.setor_responsavel, p.campus_carga, p.numero_de_serie,
-                   p.estado_de_conservacao, p.encontrado
+                   p.estado_de_conservacao, p.encontrado, p.sala_id_original
             FROM patrimonios p
             WHERE p.sala_id = ?
         ''', (sala_id,))
         return self.cursor.fetchall()
 
-    def mark_patrimonio_encontrado(self, numero):
-        """Marca um patrimônio como encontrado no banco de dados."""
+    def mark_patrimonio_encontrado(self, numero, sala_id):
+        """Marca um patrimônio como encontrado e atualiza sala_id se necessário."""
+        # Verificar o sala_id atual do patrimônio
         self.cursor.execute('''
-            UPDATE patrimonios
-            SET encontrado = 1
+            SELECT sala_id, sala_id_original
+            FROM patrimonios
             WHERE numero = ?
         ''', (numero,))
-        self.conn.commit()
-        return self.cursor.rowcount > 0
+        result = self.cursor.fetchone()
+        
+        if result:
+            current_sala_id, current_sala_id_original = result
+            # Se sala_id_original ainda não foi definido, use o sala_id atual
+            if current_sala_id_original is None:
+                self.cursor.execute('''
+                    UPDATE patrimonios
+                    SET sala_id_original = ?
+                    WHERE numero = ?
+                ''', (current_sala_id, numero))
+            
+            # Atualizar sala_id para a sala onde foi escaneado e marcar como encontrado
+            self.cursor.execute('''
+                UPDATE patrimonios
+                SET sala_id = ?, encontrado = 1
+                WHERE numero = ?
+            ''', (sala_id, numero))
+            self.conn.commit()
+            return self.cursor.rowcount > 0
+        return False
 
     def get_relatorio_patrimonios(self):
         """Retorna uma lista de todas as salas e seus patrimônios para relatório."""
         self.cursor.execute('''
             SELECT s.id, s.sala, p.numero, p.status, p.ed, p.descricao, p.rotulos,
                    p.carga_atual, p.setor_responsavel, p.campus_carga,
-                   p.numero_de_serie, p.estado_de_conservacao, p.encontrado
+                   p.numero_de_serie, p.estado_de_conservacao, p.encontrado,
+                   p.sala_id_original
             FROM salas s
             LEFT JOIN patrimonios p ON s.id = p.sala_id
             ORDER BY s.sala, p.numero
@@ -188,7 +224,8 @@ def load_data_from_file(cursor, conn, file_path):
                     row['FORNECEDOR'] or None,
                     sala_id,
                     row['ESTADO DE CONSERVAÇÃO'] or None,
-                    0  # Inicializar encontrado como 0
+                    0,  # Inicializar encontrado como 0
+                    sala_id  # Inicializar sala_id_original com o mesmo valor de sala_id
                 ))
 
             # Inserir salas no banco
@@ -205,9 +242,9 @@ def load_data_from_file(cursor, conn, file_path):
                     setor_responsavel, campus_carga, valor_aquisicao,
                     valor_depreciado, numero_nota_fiscal, numero_de_serie,
                     data_da_entrada, data_da_carga, fornecedor, sala_id,
-                    estado_de_conservacao, encontrado
+                    estado_de_conservacao, encontrado, sala_id_original
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', patrimonios_data)
 
             conn.commit()
