@@ -29,7 +29,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile --name suapcd main.py
+          pyinstaller --onefile --name suapcd ${{ matrix.os == 'windows-latest' && '--add-data "data|data"' || '--add-data "data;data"' }} app.py
 
       - name: Rename executable for Linux
         if: matrix.os == 'ubuntu-latest'
@@ -67,4 +67,3 @@ jobs:
           files: |
             artifacts/suapcd-ubuntu-latest/suapcd-${{ github.ref_name }}-linux
             artifacts/suapcd-windows-latest/suapcd-${{ github.ref_name }}-windows.exe
-            

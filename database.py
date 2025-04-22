@@ -3,51 +3,116 @@ import os
 import csv
 import hashlib
 
-def init_database():
-    """Inicializa o banco de dados e retorna a conexão e o cursor."""
-    # Criar pasta 'data' se não existir
-    os.makedirs("data", exist_ok=True)
-    
-    # Conectar ao banco de dados
-    conn = sqlite3.connect("data/suap.db")
-    cursor = conn.cursor()
-    
-    # Criar tabela de salas, se não existir
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS salas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sala TEXT NOT NULL UNIQUE,
-            codigo TEXT NOT NULL UNIQUE
-        )
-    ''')
-    
-    # Criar tabela de patrimônios, se não existir
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS patrimonios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero TEXT NOT NULL,
-            status TEXT,
-            ed TEXT,
-            descricao TEXT,
-            rotulos TEXT,
-            carga_atual TEXT,
-            setor_responsavel TEXT,
-            campus_carga TEXT,
-            valor_aquisicao REAL,
-            valor_depreciado REAL,
-            numero_nota_fiscal TEXT,
-            numero_de_serie TEXT,
-            data_da_entrada TEXT,
-            data_da_carga TEXT,
-            fornecedor TEXT,
-            sala_id INTEGER,
-            estado_de_conservacao TEXT,
-            FOREIGN KEY (sala_id) REFERENCES salas(id)
-        )
-    ''')
-    
-    conn.commit()
-    return conn, cursor
+class DatabaseManager:
+    def __init__(self):
+        self.conn = None
+        self.cursor = None
+        self.init_database()
+
+    def init_database(self):
+        """Inicializa o banco de dados e armazena a conexão e o cursor."""
+        # Criar pasta 'data' se não existir
+        os.makedirs("data", exist_ok=True)
+        
+        # Conectar ao banco de dados com check_same_thread=True
+        self.conn = sqlite3.connect("data/suap.db", check_same_thread=True)
+        self.cursor = self.conn.cursor()
+        
+        # Criar tabela de salas, se não existir
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS salas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sala TEXT NOT NULL UNIQUE,
+                codigo TEXT NOT NULL UNIQUE
+            )
+        ''')
+        
+        # Criar tabela de patrimônios, se não existir
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS patrimonios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero TEXT NOT NULL,
+                status TEXT,
+                ed TEXT,
+                descricao TEXT,
+                rotulos TEXT,
+                carga_atual TEXT,
+                setor_responsavel TEXT,
+                campus_carga TEXT,
+                valor_aquisicao REAL,
+                valor_depreciado REAL,
+                numero_nota_fiscal TEXT,
+                numero_de_serie TEXT,
+                data_da_entrada TEXT,
+                data_da_carga TEXT,
+                fornecedor TEXT,
+                sala_id INTEGER,
+                estado_de_conservacao TEXT,
+                encontrado INTEGER DEFAULT 0,
+                FOREIGN KEY (sala_id) REFERENCES salas(id)
+            )
+        ''')
+        
+        # Verificar e adicionar a coluna 'encontrado' se não existir
+        self.cursor.execute("PRAGMA table_info(patrimonios)")
+        columns = [col[1] for col in self.cursor.fetchall()]
+        if 'encontrado' not in columns:
+            self.cursor.execute('''
+                ALTER TABLE patrimonios
+                ADD COLUMN encontrado INTEGER DEFAULT 0
+            ''')
+            self.conn.commit()
+        
+        self.conn.commit()
+
+    def close(self):
+        """Fecha a conexão com o banco de dados de forma segura."""
+        try:
+            if self.conn is not None:
+                self.conn.commit()  # Garantir que todas as alterações sejam salvas
+                self.conn.close()
+                self.conn = None
+                self.cursor = None
+        except Exception as e:
+            print(f"Erro ao fechar a conexão com o banco: {e}")
+
+    def get_all_salas(self):
+        """Retorna uma lista de todas as salas (id, nome)."""
+        self.cursor.execute("SELECT id, sala FROM salas ORDER BY sala")
+        return self.cursor.fetchall()
+
+    def get_patrimonios_by_sala(self, sala_id):
+        """Retorna todos os patrimônios associados a uma sala específica."""
+        self.cursor.execute('''
+            SELECT p.numero, p.status, p.ed, p.descricao, p.rotulos, p.carga_atual,
+                   p.setor_responsavel, p.campus_carga, p.numero_de_serie,
+                   p.estado_de_conservacao, p.encontrado
+            FROM patrimonios p
+            WHERE p.sala_id = ?
+        ''', (sala_id,))
+        return self.cursor.fetchall()
+
+    def mark_patrimonio_encontrado(self, numero):
+        """Marca um patrimônio como encontrado no banco de dados."""
+        self.cursor.execute('''
+            UPDATE patrimonios
+            SET encontrado = 1
+            WHERE numero = ?
+        ''', (numero,))
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+
+    def get_relatorio_patrimonios(self):
+        """Retorna uma lista de todas as salas e seus patrimônios para relatório."""
+        self.cursor.execute('''
+            SELECT s.id, s.sala, p.numero, p.status, p.ed, p.descricao, p.rotulos,
+                   p.carga_atual, p.setor_responsavel, p.campus_carga,
+                   p.numero_de_serie, p.estado_de_conservacao, p.encontrado
+            FROM salas s
+            LEFT JOIN patrimonios p ON s.id = p.sala_id
+            ORDER BY s.sala, p.numero
+        ''')
+        return self.cursor.fetchall()
 
 def generate_unique_code(sala_text, existing_codes=None):
     """
@@ -84,8 +149,8 @@ def load_data_from_file(cursor, conn, file_path):
                 print(f"Erro: O arquivo CSV deve ter exatamente as colunas: {expected_columns}")
                 return
 
-            # Montar array temporário para salas
-            salas_unicas = set(row['SALA'] for row in reader if row['SALA'])
+            # Montar array temporário para salas, convertendo para maiúsculo
+            salas_unicas = set(row['SALA'].upper() for row in reader if row['SALA'] and row['SALA'].strip())
             sala_data = []
             existing_codes = set()
             sala_to_id = {}
@@ -103,7 +168,8 @@ def load_data_from_file(cursor, conn, file_path):
             next(reader)  # Pular o cabeçalho
             for row in reader:
                 campus_carga = row['CAMPUS DA CARGA'].lower() if row['CAMPUS DA CARGA'] else None
-                sala_id = sala_to_id.get(row['SALA'], None)
+                sala_text = row['SALA'].upper() if row['SALA'] and row['SALA'].strip() else None
+                sala_id = sala_to_id.get(sala_text, None)
                 patrimonios_data.append((
                     row['NUMERO'],
                     row['STATUS'] or None,
@@ -121,7 +187,8 @@ def load_data_from_file(cursor, conn, file_path):
                     row['DATA DA CARGA'] or None,
                     row['FORNECEDOR'] or None,
                     sala_id,
-                    row['ESTADO DE CONSERVAÇÃO'] or None
+                    row['ESTADO DE CONSERVAÇÃO'] or None,
+                    0  # Inicializar encontrado como 0
                 ))
 
             # Inserir salas no banco
@@ -138,9 +205,9 @@ def load_data_from_file(cursor, conn, file_path):
                     setor_responsavel, campus_carga, valor_aquisicao,
                     valor_depreciado, numero_nota_fiscal, numero_de_serie,
                     data_da_entrada, data_da_carga, fornecedor, sala_id,
-                    estado_de_conservacao
+                    estado_de_conservacao, encontrado
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', patrimonios_data)
 
             conn.commit()
@@ -149,22 +216,3 @@ def load_data_from_file(cursor, conn, file_path):
             print(f"Salas importadas: {len(sala_data)}")
     except Exception as e:
         print(f"Erro ao carregar o arquivo: {e}")
-
-def get_all_salas(cursor):
-    """Retorna uma lista de todas as salas (id, nome)."""
-    cursor.execute("SELECT id, sala FROM salas ORDER BY sala")
-    return cursor.fetchall()
-
-def get_patrimonios_by_sala(cursor, sala_id):
-    """Retorna todos os patrimônios associados a uma sala específica."""
-    cursor.execute('''
-        SELECT p.numero, p.status, p.ed, p.descricao, p.rotulos, p.carga_atual,
-               p.setor_responsavel, p.campus_carga, p.valor_aquisicao,
-               p.valor_depreciado, p.numero_nota_fiscal, p.numero_de_serie,
-               p.data_da_entrada, p.data_da_carga, p.fornecedor, s.sala,
-               p.estado_de_conservacao
-        FROM patrimonios p
-        LEFT JOIN salas s ON p.sala_id = s.id
-        WHERE p.sala_id = ?
-    ''', (sala_id,))
-    return cursor.fetchall()
