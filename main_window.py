@@ -8,7 +8,7 @@ import glob
 from PyQt5.QtWidgets import (
     QMainWindow, QLabel, QVBoxLayout, QWidget, QHBoxLayout,
     QSpacerItem, QSizePolicy, QTableWidget, QTableWidgetItem, QHeaderView,
-    QPushButton, QLineEdit
+    QPushButton, QLineEdit, QComboBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QBrush, QColor
@@ -18,6 +18,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("SUAP-CD - Coletor de Dados")
         self.db_manager = db_manager
+        self.filter_mode = "all"  # Modo de filtro inicial: todos
 
         # Layout principal
         layout = QVBoxLayout()
@@ -68,6 +69,13 @@ class MainWindow(QMainWindow):
         self.sala_table.clicked.connect(self.update_patrimonios_table)
         layout.addWidget(self.sala_table, stretch=1)  # Ocupa metade do espaço
         
+        # ComboBox para filtro de encontrado
+        self.filter_combo = QComboBox()
+        self.filter_combo.setFont(QFont("Arial", 12))
+        self.filter_combo.addItems(["Todos", "Encontrados", "Não Encontrados"])
+        self.filter_combo.currentIndexChanged.connect(self.update_filter_mode)
+        layout.addWidget(self.filter_combo)
+        
         # Tabela para exibir patrimônios
         self.patrimonio_table = QTableWidget(self)
         self.patrimonio_table.setColumnCount(11)
@@ -89,7 +97,7 @@ class MainWindow(QMainWindow):
         
         self.encontrados_label = QLabel("Patrimônios Encontrados: 0")
         self.encontrados_label.setFont(QFont("Arial", 12))
-        self.total_label.setAlignment(Qt.AlignLeft)
+        self.encontrados_label.setAlignment(Qt.AlignLeft)
         layout.addWidget(self.encontrados_label)
         
         # Espaçador inferior reduzido
@@ -119,8 +127,19 @@ class MainWindow(QMainWindow):
         filter_text = self.filter_input.text().strip()
         self.populate_sala_table(filter_text)
 
+    def update_filter_mode(self):
+        """Atualiza o modo de filtro com base na seleção do ComboBox."""
+        index = self.filter_combo.currentIndex()
+        if index == 0:
+            self.filter_mode = "all"
+        elif index == 1:
+            self.filter_mode = "encontrados"
+        elif index == 2:
+            self.filter_mode = "nao_encontrados"
+        self.update_patrimonios_table()
+
     def update_patrimonios_table(self):
-        """Atualiza a tabela de patrimônios com base na sala selecionada na tabela de salas."""
+        """Atualiza a tabela de patrimônios com base na sala selecionada e no filtro de encontrado."""
         selected_items = self.sala_table.selectedItems()
         if not selected_items:
             self.patrimonio_table.setRowCount(0)
@@ -134,20 +153,33 @@ class MainWindow(QMainWindow):
         # Limpar tabela de patrimônios
         self.patrimonio_table.setRowCount(0)
         
-        # Buscar e preencher patrimônios
+        # Buscar todos os patrimônios da sala
         patrimonios = self.db_manager.get_patrimonios_by_sala(sala_id)
-        self.patrimonio_table.setRowCount(len(patrimonios))
+        
+        # Filtrar patrimônios com base no modo de filtro
+        filtered_patrimonios = []
+        for patrimonio in patrimonios:
+            encontrado = patrimonio[-1]  # Último campo é encontrado
+            if self.filter_mode == "all":
+                filtered_patrimonios.append(patrimonio)
+            elif self.filter_mode == "encontrados" and encontrado == 1:
+                filtered_patrimonios.append(patrimonio)
+            elif self.filter_mode == "nao_encontrados" and encontrado == 0:
+                filtered_patrimonios.append(patrimonio)
+        
+        # Atualizar tabela com os patrimônios filtrados
+        self.patrimonio_table.setRowCount(len(filtered_patrimonios))
         
         # Calcular estatísticas
-        total_patrimonios = len(patrimonios)
-        encontrados = sum(1 for row_data in patrimonios if row_data[-1] == 1)
+        total_patrimonios = len(filtered_patrimonios)
+        encontrados = sum(1 for row_data in filtered_patrimonios if row_data[-1] == 1)
         
         # Atualizar labels
         self.total_label.setText(f"Total de Patrimônios: {total_patrimonios}")
         self.encontrados_label.setText(f"Patrimônios Encontrados: {encontrados}")
         
         # Preencher tabela
-        for row_idx, row_data in enumerate(patrimonios):
+        for row_idx, row_data in enumerate(filtered_patrimonios):
             # Mapear os 11 campos: numero, status, ed, descricao, rotulos, carga_atual,
             # setor_responsavel, campus_carga, numero_de_serie, estado_de_conservacao, encontrado
             for col_idx, value in enumerate(row_data[:-1]):  # Excluir encontrado dos valores
@@ -182,7 +214,7 @@ class MainWindow(QMainWindow):
             return
 
         # Criar diretório geral
-        geral_dir = os.path.join(base_dir, "_geral")
+        geral_dir = os.path.join(base_dir, "_GERAL_")
         try:
             os.makedirs(geral_dir, exist_ok=True)
         except Exception as e:

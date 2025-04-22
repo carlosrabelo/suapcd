@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     # Modo gráfico: abrir a interface
     # Habilitar suporte a High DPI
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, False)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = App(sys.argv, db_manager)
