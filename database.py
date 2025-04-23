@@ -11,14 +11,10 @@ class DatabaseManager:
 
     def init_database(self):
         """Inicializa o banco de dados e armazena a conexão e o cursor."""
-        # Criar pasta 'data' se não existir
         os.makedirs("data", exist_ok=True)
-        
-        # Conectar ao banco de dados com check_same_thread=True
         self.conn = sqlite3.connect("data/suap.db", check_same_thread=True)
         self.cursor = self.conn.cursor()
         
-        # Criar tabela de salas, se não existir
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS salas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +23,6 @@ class DatabaseManager:
             )
         ''')
         
-        # Criar tabela de patrimônios, se não existir
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS patrimonios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +50,15 @@ class DatabaseManager:
             )
         ''')
         
-        # Verificar e adicionar a coluna 'encontrado' se não existir
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS patrimonios_nao_cadastrados (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero TEXT NOT NULL,
+                sala_id INTEGER,
+                FOREIGN KEY (sala_id) REFERENCES salas(id)
+            )
+        ''')
+        
         self.cursor.execute("PRAGMA table_info(patrimonios)")
         columns = [col[1] for col in self.cursor.fetchall()]
         if 'encontrado' not in columns:
@@ -64,13 +67,11 @@ class DatabaseManager:
                 ADD COLUMN encontrado INTEGER DEFAULT 0
             ''')
         
-        # Verificar e adicionar a coluna 'sala_id_original' se não existir
         if 'sala_id_original' not in columns:
             self.cursor.execute('''
                 ALTER TABLE patrimonios
                 ADD COLUMN sala_id_original INTEGER
             ''')
-            # Inicializar sala_id_original com o valor atual de sala_id
             self.cursor.execute('''
                 UPDATE patrimonios
                 SET sala_id_original = sala_id
@@ -84,7 +85,7 @@ class DatabaseManager:
         """Fecha a conexão com o banco de dados de forma segura."""
         try:
             if self.conn is not None:
-                self.conn.commit()  # Garantir que todas as alterações sejam salvas
+                self.conn.commit()
                 self.conn.close()
                 self.conn = None
                 self.cursor = None
@@ -109,7 +110,6 @@ class DatabaseManager:
 
     def mark_patrimonio_encontrado(self, numero, sala_id):
         """Marca um patrimônio como encontrado e atualiza sala_id se necessário."""
-        # Verificar o sala_id atual do patrimônio
         self.cursor.execute('''
             SELECT sala_id, sala_id_original
             FROM patrimonios
@@ -119,7 +119,6 @@ class DatabaseManager:
         
         if result:
             current_sala_id, current_sala_id_original = result
-            # Se sala_id_original ainda não foi definido, use o sala_id atual
             if current_sala_id_original is None:
                 self.cursor.execute('''
                     UPDATE patrimonios
@@ -127,7 +126,6 @@ class DatabaseManager:
                     WHERE numero = ?
                 ''', (current_sala_id, numero))
             
-            # Atualizar sala_id para a sala onde foi escaneado e marcar como encontrado
             self.cursor.execute('''
                 UPDATE patrimonios
                 SET sala_id = ?, encontrado = 1
@@ -136,6 +134,25 @@ class DatabaseManager:
             self.conn.commit()
             return self.cursor.rowcount > 0
         return False
+
+    def record_unfound_patrimonio(self, numero, sala_id):
+        """Registra um patrimônio não cadastrado na tabela patrimonios_nao_cadastrados."""
+        self.cursor.execute('''
+            INSERT INTO patrimonios_nao_cadastrados (numero, sala_id)
+            VALUES (?, ?)
+        ''', (numero, sala_id))
+        self.conn.commit()
+        return self.cursor.rowcount > 0
+
+    def get_unfound_patrimonios(self):
+        """Retorna todos os patrimônios não cadastrados com suas salas."""
+        self.cursor.execute('''
+            SELECT s.id, s.sala, u.numero
+            FROM patrimonios_nao_cadastrados u
+            JOIN salas s ON u.sala_id = s.id
+            ORDER BY s.sala, u.numero
+        ''')
+        return self.cursor.fetchall()
 
     def get_relatorio_patrimonios(self):
         """Retorna uma lista de todas as salas e seus patrimônios para relatório."""
@@ -151,10 +168,7 @@ class DatabaseManager:
         return self.cursor.fetchall()
 
 def generate_unique_code(sala_text, existing_codes=None):
-    """
-    Gera um código único baseado no hash MD5 do texto da sala.
-    O código é determinístico, produzindo o mesmo resultado para o mesmo texto.
-    """
+    """Gera um código único baseado no hash MD5 do texto da sala."""
     if not sala_text:
         return None
     hash_object = hashlib.md5(sala_text.encode('utf-8'))
@@ -165,12 +179,11 @@ def generate_unique_code(sala_text, existing_codes=None):
 
 def load_data_from_file(cursor, conn, file_path):
     """Zera as tabelas, processa o CSV em memória e grava salas e patrimônios no banco."""
-    # Zerar as tabelas apenas quando um novo arquivo é carregado
     cursor.execute("DELETE FROM patrimonios")
+    cursor.execute("DELETE FROM patrimonios_nao_cadastrados")
     cursor.execute("DELETE FROM salas")
     conn.commit()
 
-    # Ler e processar o arquivo CSV
     try:
         with open(file_path, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -185,7 +198,6 @@ def load_data_from_file(cursor, conn, file_path):
                 print(f"Erro: O arquivo CSV deve ter exatamente as colunas: {expected_columns}")
                 return
 
-            # Montar array temporário para salas, convertendo para maiúsculo
             salas_unicas = set(row['SALA'].upper() for row in reader if row['SALA'] and row['SALA'].strip())
             sala_data = []
             existing_codes = set()
@@ -198,10 +210,9 @@ def load_data_from_file(cursor, conn, file_path):
                 sala_to_id[sala] = next_id
                 next_id += 1
 
-            # Armazenar registros de patrimônios em memória
             patrimonios_data = []
             csvfile.seek(0)
-            next(reader)  # Pular o cabeçalho
+            next(reader)
             for row in reader:
                 campus_carga = row['CAMPUS DA CARGA'].lower() if row['CAMPUS DA CARGA'] else None
                 sala_text = row['SALA'].upper() if row['SALA'] and row['SALA'].strip() else None
@@ -224,18 +235,16 @@ def load_data_from_file(cursor, conn, file_path):
                     row['FORNECEDOR'] or None,
                     sala_id,
                     row['ESTADO DE CONSERVAÇÃO'] or None,
-                    0,  # Inicializar encontrado como 0
-                    sala_id  # Inicializar sala_id_original com o mesmo valor de sala_id
+                    0,
+                    sala_id
                 ))
 
-            # Inserir salas no banco
             for sala in sala_data:
                 cursor.execute('''
                     INSERT INTO salas (id, sala, codigo)
                     VALUES (?, ?, ?)
                 ''', (sala['id'], sala['sala'], sala['codigo']))
 
-            # Inserir patrimônios no banco
             cursor.executemany('''
                 INSERT INTO patrimonios (
                     numero, status, ed, descricao, rotulos, carga_atual,
