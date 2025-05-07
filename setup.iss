@@ -15,7 +15,7 @@ SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\suapcd.exe
-LicenseFile=LICENSE.txt
+LicenseFile=LICENSE
 PrivilegesRequired=admin
 
 [Languages]
