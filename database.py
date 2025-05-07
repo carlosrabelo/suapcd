@@ -2,6 +2,8 @@ import sqlite3
 import os
 import csv
 import hashlib
+import platform
+from pathlib import Path
 
 class DatabaseManager:
     def __init__(self):
@@ -9,10 +11,25 @@ class DatabaseManager:
         self.cursor = None
         self.init_database()
 
+    def get_data_dir(self):
+        """Retorna o diretório de dados apropriado com base no sistema operacional."""
+        if platform.system() == "Windows":
+            # Usar %APPDATA%\SUAP-CD no Windows
+            data_dir = Path(os.getenv("APPDATA")) / "SUAP-CD"
+        else:
+            # Usar /var/lib/suapcd no Linux
+            data_dir = Path("/var/lib/suapcd")
+        
+        # Criar o diretório se não existir
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+
     def init_database(self):
         """Inicializa o banco de dados e armazena a conexão e o cursor."""
-        os.makedirs("data", exist_ok=True)
-        self.conn = sqlite3.connect("data/suap.db", check_same_thread=True)
+        data_dir = self.get_data_dir()
+        db_path = data_dir / "suap.db"
+        
+        self.conn = sqlite3.connect(db_path, check_same_thread=True)
         self.cursor = self.conn.cursor()
         
         self.cursor.execute('''

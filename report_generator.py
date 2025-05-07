@@ -1,23 +1,33 @@
 import os
 import csv
 import glob
+import platform
+from pathlib import Path
 
 class ReportGenerator:
     def __init__(self, db_manager):
         self.db_manager = db_manager
 
+    def get_report_dir(self):
+        """Retorna o diretório de relatórios apropriado com base no sistema operacional."""
+        if platform.system() == "Windows":
+            # Usar %APPDATA%\SUAP-CD\report no Windows
+            report_dir = Path(os.getenv("APPDATA")) / "SUAP-CD" / "report"
+        else:
+            # Usar /var/lib/suapcd/report no Linux
+            report_dir = Path("/var/lib/suapcd/report")
+        
+        # Criar o diretório se não existir
+        report_dir.mkdir(parents=True, exist_ok=True)
+        return report_dir
+
     def generate_report(self):
         """Gera relatórios CSV com itens lidos, não lidos, divergentes e não cadastrados para cada sala e geral."""
-        base_dir = "report"
+        base_dir = self.get_report_dir()
+        
+        geral_dir = base_dir / "_GERAL_"
         try:
-            os.makedirs(base_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Erro ao criar diretório {base_dir}: {e}")
-            return
-
-        geral_dir = os.path.join(base_dir, "_GERAL_")
-        try:
-            os.makedirs(geral_dir, exist_ok=True)
+            geral_dir.mkdir(exist_ok=True)
         except Exception as e:
             print(f"Erro ao criar diretório {geral_dir}: {e}")
             return
@@ -67,14 +77,14 @@ class ReportGenerator:
         headers_unfound = ["Número"]
         headers_unfound_geral = ["Sala Atual", "Número"]
 
-        for csv_file in glob.glob(os.path.join(geral_dir, "*.csv")):
+        for csv_file in glob.glob(str(geral_dir / "*.csv")):
             try:
                 os.remove(csv_file)
                 print(f"Arquivo removido: {csv_file}")
             except Exception as e:
                 print(f"Erro ao remover arquivo {csv_file}: {e}")
 
-        csv_path_geral_encontrados = os.path.join(geral_dir, "encontrados.csv")
+        csv_path_geral_encontrados = geral_dir / "encontrados.csv"
         try:
             with open(csv_path_geral_encontrados, mode='w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -94,7 +104,7 @@ class ReportGenerator:
         except Exception as e:
             print(f"Erro ao escrever CSV {csv_path_geral_encontrados}: {e}")
 
-        csv_path_geral_nao_encontrados = os.path.join(geral_dir, "nao_encontrados.csv")
+        csv_path_geral_nao_encontrados = geral_dir / "nao_encontrados.csv"
         try:
             with open(csv_path_geral_nao_encontrados, mode='w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -114,7 +124,7 @@ class ReportGenerator:
         except Exception as e:
             print(f"Erro ao escrever CSV {csv_path_geral_nao_encontrados}: {e}")
 
-        csv_path_geral_divergentes = os.path.join(geral_dir, "divergente.csv")
+        csv_path_geral_divergentes = geral_dir / "divergente.csv"
         try:
             with open(csv_path_geral_divergentes, mode='w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -134,7 +144,7 @@ class ReportGenerator:
         except Exception as e:
             print(f"Erro ao escrever CSV {csv_path_geral_divergentes}: {e}")
 
-        csv_path_geral_unfound = os.path.join(geral_dir, "nao_cadastrados.csv")
+        csv_path_geral_unfound = geral_dir / "nao_cadastrados.csv"
         try:
             with open(csv_path_geral_unfound, mode='w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
@@ -152,21 +162,21 @@ class ReportGenerator:
             divergentes = sala_info["divergentes"]
             
             safe_sala_nome = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in sala_nome)
-            sala_dir = os.path.join(base_dir, safe_sala_nome)
+            sala_dir = base_dir / safe_sala_nome
             try:
-                os.makedirs(sala_dir, exist_ok=True)
+                sala_dir.mkdir(exist_ok=True)
             except Exception as e:
                 print(f"Erro ao criar diretório {sala_dir}: {e}")
                 continue
             
-            for csv_file in glob.glob(os.path.join(sala_dir, "*.csv")):
+            for csv_file in glob.glob(str(sala_dir / "*.csv")):
                 try:
                     os.remove(csv_file)
                     print(f"Arquivo removido: {csv_file}")
                 except Exception as e:
                     print(f"Erro ao remover arquivo {csv_file}: {e}")
 
-            csv_path_encontrados = os.path.join(sala_dir, "encontrados.csv")
+            csv_path_encontrados = sala_dir / "encontrados.csv"
             try:
                 with open(csv_path_encontrados, mode='w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
@@ -186,7 +196,7 @@ class ReportGenerator:
             except Exception as e:
                 print(f"Erro ao escrever CSV {csv_path_encontrados}: {e}")
 
-            csv_path_nao_encontrados = os.path.join(sala_dir, "nao_encontrados.csv")
+            csv_path_nao_encontrados = sala_dir / "nao_encontrados.csv"
             try:
                 with open(csv_path_nao_encontrados, mode='w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
@@ -206,7 +216,7 @@ class ReportGenerator:
             except Exception as e:
                 print(f"Erro ao escrever CSV {csv_path_nao_encontrados}: {e}")
 
-            csv_path_divergentes = os.path.join(sala_dir, "divergente.csv")
+            csv_path_divergentes = sala_dir / "divergente.csv"
             try:
                 with open(csv_path_divergentes, mode='w', newline='', encoding='utf-8') as csvfile:
                     writer = csv.writer(csvfile)
@@ -227,7 +237,7 @@ class ReportGenerator:
                 print(f"Erro ao escrever CSV {csv_path_divergentes}: {e}")
 
             if sala_id in salas_unfound:
-                csv_path_unfound = os.path.join(sala_dir, "nao_cadastrados.csv")
+                csv_path_unfound = sala_dir / "nao_cadastrados.csv"
                 try:
                     with open(csv_path_unfound, mode='w', newline='', encoding='utf-8') as csvfile:
                         writer = csv.writer(csvfile)

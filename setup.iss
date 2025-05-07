@@ -3,7 +3,7 @@
 [Setup]
 AppName=SUAP-CD
 AppVersion={#AppVersion}
-AppPublisher=IFMT
+AppPublisher=Sua Organização
 AppSupportURL=https://ifmt.edu.br
 AppUpdatesURL=https://ifmt.edu.br
 DefaultDirName={autopf}\SUAP-CD
@@ -25,7 +25,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "dist\suapcd.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

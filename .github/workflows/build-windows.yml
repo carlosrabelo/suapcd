@@ -31,10 +31,6 @@ jobs:
         env:
           CHOCOLATEY_INSTALL: C:\ProgramData\chocolatey
 
-      - name: Create data directory
-        run: mkdir dist\data
-        shell: cmd
-
       - name: Build Inno Setup Installer
         run: |
           iscc /DAppVersion=${{ github.sha }} setup.iss
