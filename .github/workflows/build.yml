@@ -39,11 +39,27 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: ren dist\suapcd.exe suapcd-${{ github.ref_name }}-windows.exe
 
+      - name: Install Inno Setup (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install innosetup -y
+        env:
+          CHOCOLATEY_INSTALL: C:\ProgramData\chocolatey
+
+      - name: Build Inno Setup Installer (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          iscc /DAppVersion=${{ github.ref_name }} setup.iss
+        shell: cmd
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: suapcd-${{ matrix.os }}
-          path: dist/
+          path: |
+            dist/suapcd-${{ github.ref_name }}-linux
+            dist/suapcd-${{ github.ref_name }}-windows.exe
+            dist/SUAP-CD-${{ github.ref_name }}-Setup.exe
 
   release:
     needs: build
@@ -64,6 +80,8 @@ jobs:
           body: |
             Lançamento da versão ${{ github.ref_name }} do SUAP-CD.
             - Coletor de dados para verificação de patrimônio (Linux e Windows).
+            - Inclui instalador para Windows.
           files: |
             artifacts/suapcd-ubuntu-latest/suapcd-${{ github.ref_name }}-linux
             artifacts/suapcd-windows-latest/suapcd-${{ github.ref_name }}-windows.exe
+            artifacts/suapcd-windows-latest/SUAP-CD-${{ github.ref_name }}-Setup.exe
