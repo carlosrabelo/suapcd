@@ -3,9 +3,9 @@
 [Setup]
 AppName=SUAP-CD
 AppVersion={#AppVersion}
-AppPublisher=Sua Organização
-AppSupportURL=https://exemplo.com
-AppUpdatesURL=https://exemplo.com
+AppPublisher=IFMT
+AppSupportURL=https://ifmt.edu.br
+AppUpdatesURL=https://ifmt.edu.br
 DefaultDirName={autopf}\SUAP-CD
 DefaultGroupName=SUAP-CD
 OutputDir=dist

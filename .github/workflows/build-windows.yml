@@ -25,9 +25,6 @@ jobs:
         run: |
           pyinstaller --onefile --name suapcd app.py
 
-      - name: Rename executable
-        run: ren dist\suapcd.exe suapcd-${{ github.sha }}-windows.exe
-
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
@@ -42,6 +39,9 @@ jobs:
         run: |
           iscc /DAppVersion=${{ github.sha }} setup.iss
         shell: cmd
+
+      - name: Rename executable
+        run: ren dist\suapcd.exe suapcd-${{ github.sha }}-windows.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
