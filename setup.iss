@@ -3,9 +3,9 @@
 [Setup]
 AppName=SUAP-CD
 AppVersion={#AppVersion}
-AppPublisher=IFMT
-AppSupportURL=https://ifmt.edu.br
-AppUpdatesURL=https://ifmt.edu.br
+AppPublisher=Sua Organização
+AppSupportURL=https://exemplo.com
+AppUpdatesURL=https://exemplo.com
 DefaultDirName={autopf}\SUAP-CD
 DefaultGroupName=SUAP-CD
 OutputDir=dist
@@ -13,7 +13,6 @@ OutputBaseFilename=suap-cd-{#AppVersion}-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\suapcd.exe
 LicenseFile=LICENSE
 PrivilegesRequired=admin
@@ -27,9 +26,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "dist\suapcd.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Inclua outros arquivos necessários, como ícones ou licenças
-; Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-; Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+; Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\SUAP-CD"; Filename: "{app}\suapcd.exe"

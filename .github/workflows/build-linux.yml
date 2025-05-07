@@ -1,0 +1,59 @@
+name: Build Linux Executable
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --name suapcd app.py
+
+      - name: Rename executable
+        run: mv dist/suapcd dist/suapcd-${{ github.sha }}-linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suapcd-linux
+          path: dist/suapcd-${{ github.sha }}-linux
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: suapcd-linux
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: manual-${{ github.sha }}
+          name: Manual Build ${{ github.sha }} (Linux)
+          draft: true
+          prerelease: false
+          body: |
+            Build manual do SUAP-CD para Linux.
+            - Commit: ${{ github.sha }}
+            - Coletor de dados para verificação de patrimônio.
+          files: |
+            artifacts/suapcd-${{ github.sha }}-linux

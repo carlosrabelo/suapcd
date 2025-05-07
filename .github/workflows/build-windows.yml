@@ -1,0 +1,78 @@
+name: Build Windows Executable and Installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --name suapcd app.py
+
+      - name: Rename executable
+        run: ren dist\suapcd.exe suapcd-${{ github.sha }}-windows.exe
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+        env:
+          CHOCOLATEY_INSTALL: C:\ProgramData\chocolatey
+
+      - name: Create data directory
+        run: mkdir dist\data
+        shell: cmd
+
+      - name: Build Inno Setup Installer
+        run: |
+          iscc /DAppVersion=${{ github.sha }} setup.iss
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suapcd-windows
+          path: |
+            dist/suapcd-${{ github.sha }}-windows.exe
+            dist/suap-cd-${{ github.sha }}-Setup.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: suapcd-windows
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: manual-${{ github.sha }}
+          name: Manual Build ${{ github.sha }} (Windows)
+          draft: true
+          prerelease: false
+          body: |
+            Build manual do SUAP-CD para Windows.
+            - Commit: ${{ github.sha }}
+            - Coletor de dados para verificação de patrimônio.
+            - Inclui instalador.
+          files: |
+            artifacts/suapcd-${{ github.sha }}-windows.exe
+            artifacts/suap-cd-${{ github.sha }}-Setup.exe
