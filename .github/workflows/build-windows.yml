@@ -2,6 +2,10 @@ name: Build Windows Executable and Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 1.0.0)'
+        required: true
 
 jobs:
   build:
@@ -33,19 +37,19 @@ jobs:
 
       - name: Build Inno Setup Installer
         run: |
-          iscc /DAppVersion=${{ github.sha }} setup.iss
+          iscc /DAppVersion=${{ github.event.inputs.version }} setup.iss
         shell: cmd
 
       - name: Rename executable
-        run: ren dist\suapcd.exe suapcd-${{ github.sha }}-windows.exe
+        run: ren dist\suapcd.exe suapcd-${{ github.event.inputs.version }}-windows.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: suapcd-windows
           path: |
-            dist/suapcd-${{ github.sha }}-windows.exe
-            dist/suap-cd-${{ github.sha }}-Setup.exe
+            dist/suapcd-${{ github.event.inputs.version }}-windows.exe
+            dist/suap-cd-${{ github.event.inputs.version }}-Setup.exe
 
   release:
     needs: build
@@ -60,15 +64,15 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: manual-${{ github.sha }}
-          name: Manual Build ${{ github.sha }} (Windows)
+          tag_name: v${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }} (Windows)
           draft: true
           prerelease: false
           body: |
             Build manual do SUAP-CD para Windows.
-            - Commit: ${{ github.sha }}
+            - Versão: ${{ github.event.inputs.version }}
             - Coletor de dados para verificação de patrimônio.
             - Inclui instalador.
           files: |
-            artifacts/suapcd-${{ github.sha }}-windows.exe
-            artifacts/suap-cd-${{ github.sha }}-Setup.exe
+            artifacts/suapcd-${{ github.event.inputs.version }}-windows.exe
+            artifacts/suap-cd-${{ github.event.inputs.version }}-Setup.exe
